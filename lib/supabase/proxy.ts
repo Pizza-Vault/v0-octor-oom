@@ -39,6 +39,7 @@ export async function updateSession(request: NextRequest) {
     "/auth/error",
     "/setup",
     "/api/create-admin",
+    "/api/webhook", // Webhook endpoints must be public
   ]
   const isPublicPath = publicPaths.some((p) => pathname.startsWith(p))
 
