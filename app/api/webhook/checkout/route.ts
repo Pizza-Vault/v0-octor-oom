@@ -5,14 +5,25 @@ import { createServiceClient } from "@/lib/supabase/service"
  * OCTORoom Webhook: Checkout/Depart
  *
  * Creates a depart task when a guest checks out.
- * Called by external PMS/booking system.
+ * Called by external PMS/booking system (e.g. MEWS).
  *
- * Test with curl:
+ * Authentication: Query token (primary) or Header (secondary)
  *
- * curl -X POST https://YOUR_DOMAIN/api/webhook/checkout \
- *   -H "Content-Type: application/json" \
- *   -H "x-webhook-secret: YOUR_SECRET" \
- *   -d '{"room_number":5,"checkout_date":"2025-12-18"}'
+ * PowerShell Test mit Query Token:
+ *
+ * Invoke-RestMethod `
+ *   -Method POST `
+ *   -Uri "https://octopro.ch/api/webhook/checkout?token=DEIN_TOKEN" `
+ *   -Headers @{ "Content-Type"="application/json" } `
+ *   -Body '{"room_number":5,"checkout_date":"2025-12-18"}'
+ *
+ * PowerShell Test mit Header (optional):
+ *
+ * Invoke-RestMethod `
+ *   -Method POST `
+ *   -Uri "https://octopro.ch/api/webhook/checkout" `
+ *   -Headers @{ "Content-Type"="application/json"; "x-webhook-secret"="DEIN_TOKEN" } `
+ *   -Body '{"room_number":5,"checkout_date":"2025-12-18"}'
  *
  * Success response:
  * {"ok":true,"action":"depart_task_created","room_number":5,"checkout_date":"2025-12-18"}
@@ -36,8 +47,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Validate webhook secret
-    const webhookSecret = request.headers.get("x-webhook-secret")
+    // 1. Validate webhook secret (Query token primary, Header secondary)
+    const queryToken = new URL(request.url).searchParams.get("token")
+    const headerToken = request.headers.get("x-webhook-secret")
+    const providedToken = queryToken || headerToken
     const expectedSecret = process.env.OCTO_WEBHOOK_SECRET
 
     if (!expectedSecret) {
@@ -45,7 +58,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Webhook not configured" }, { status: 500, headers })
     }
 
-    if (!webhookSecret || webhookSecret !== expectedSecret) {
+    if (!providedToken || providedToken !== expectedSecret) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers })
     }
 
@@ -148,7 +161,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: "Failed to create task" }, { status: 500, headers })
     }
 
-    // 7. Update room's last_depart_at
+    // 7. Update room's last_depart_at (occupied bleibt unverändert)
     await supabase.from("octo_rooms").update({ last_depart_at: checkout_date }).eq("id", room.id)
 
     console.log(`[Webhook] Depart task created: room ${room_number}, date ${checkout_date}`)
@@ -174,6 +187,7 @@ export async function GET() {
       ok: true,
       endpoint: "/api/webhook/checkout",
       method_allowed: "POST",
+      auth: "query ?token=... (primary) or header x-webhook-secret (secondary)",
       status: "ready",
     },
     { status: 200 },
